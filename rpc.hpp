@@ -86,12 +86,18 @@ namespace rpc
     //      set it's commit index=min(leader_commit, index of last new entry)
     struct rpc_append_entries
     {
-        int32_t term; // leader's term
-        int32_t leader_id; // client save it, then can redirect request to leader
-        int32_t prev_log_index; // index of log entry immediately preceding new ones
-        int32_t prev_log_term; // term of prev_log_index entry
-        void* entries; // log entries to store;
-        int32_t leader_commit; // leader's commit index
+        // leader's term
+        int32_t term;
+        // client save it, then can redirect request to leader
+        int32_t leader_id; 
+        // index of log entry immediately preceding new ones
+        int32_t prev_log_index;
+        // term of prev_log_index entry
+        int32_t prev_log_term; 
+        // log entries to store;
+        void* entries; 
+        // leader's commit index
+        int32_t leader_commit;
 
         // values for return
         int32_t current_term; // current term for leader to update itself
@@ -133,6 +139,7 @@ namespace rpc
         int32_t type;
 
         int32_t src_server_index, dest_server_index;
+        bool is_request; // true if is a request, otherwise it is a response
     };
     static int32_t RECV_BACKLOG_SIZE = 32; // the max size of the server listen backlog
     const static int32_t RECV_BUFFER_SIZE = sizeof(rpc::rpc_data); // the size of each RPC

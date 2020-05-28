@@ -1,16 +1,5 @@
 #pragma once
 #include "rpc.hpp"
-#include <stdlib.h>
-#include <vector>
-#include <chrono>
-#include <pthread.h>
-#include <random>
-#include <thread>
-#include <unordered_map>
-#include <future>
-#include <functional>
-#include <atomic>
-#include <iostream>
 
 namespace my_router
 {
@@ -55,8 +44,22 @@ namespace my_router
                     }
                     else
                     {
-                        int32_t target_sock_fd = id2sock_fd[recv_data->dest_server_index];
-                        rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
+                        if(recv_data->dest_server_index >=0)
+                        {
+                            int32_t target_sock_fd = id2sock_fd[recv_data->dest_server_index];
+                            rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
+                        }
+                        else
+                        {
+                            // broadcast
+                            for(const std::pair<int32_t, int32_t>& ele : id2sock_fd)
+                            {
+                                if(ele.first == recv_data->src_server_index)
+                                    continue;
+                                recv_data->dest_server_index = ele.first;
+                                rpcmanager.send_msg(ele.second,(void*)recv_data,sizeof(rpc::rpc_data));
+                            }
+                        }
                     }
                 }
             }
@@ -67,5 +70,4 @@ namespace my_router
         // map from id to sockfd
         std::unordered_map<int32_t, int32_t> id2sock_fd;
     };
-    
 } // namespace my_router
