@@ -52,11 +52,11 @@ namespace rpc
 {
     namespace rpc_type
     {
-        const static int32_t REQUEST_VOTE=0;
-        const static int32_t APPEND_ENTRIES=1;
-        const static int32_t INSTALL_SNAPSHOT=2; 
+        const static int32_t CONN=0;
+        const static int32_t REQUEST_VOTE=1;
+        const static int32_t APPEND_ENTRIES=2;
+        const static int32_t INSTALL_SNAPSHOT=3; 
     };
-
 
     // this rpc invoked by candidates to gather votes
     struct rpc_requestvote
