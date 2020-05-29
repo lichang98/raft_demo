@@ -1,5 +1,6 @@
+#pragma once
 #include "rpc.hpp"
-#include "log_manager.hpp"
+#include "server_sm.hpp"
 #include <chrono>
 #include <random>
 #include <thread>
@@ -23,27 +24,25 @@ namespace server
         ServerEnt(const ServerEnt& other)
         {
             this->begin_tm = other.begin_tm;
-            this->curr_tm=other.curr_tm;
+            this->curr_tm = other.curr_tm;
             this->rpcmanager = other.rpcmanager;
 
-            this->server_identity = other.server_identity;
+            this->server_identity=other.server_identity;
             this->server_idx=other.server_idx;
             this->leader_id=other.leader_id;
             this->logmanager=other.logmanager;
-
             this->current_term=other.current_term;
             this->voted_for=other.voted_for;
 
             this->commit_index=other.commit_index;
             this->last_applied=other.last_applied;
+            this->atomic_on_leader_index.clear();
 
             this->match_index=other.match_index;
             this->leader_commit=other.leader_commit;
-
             this->is_server_running=other.is_server_running;
-            this->on_election=other.on_election;   
-
-            this->atomic_on_leader_index.clear(); 
+            this->on_election=other.on_election;        
+            this->get_vote_count=other.get_vote_count;
         }
         /*
         * initial server entity
@@ -74,9 +73,10 @@ namespace server
             init_data->type=rpc::rpc_type::CONN;
             rpcmanager.create_connection((char*)opaque_server,opaque_server_port);
             rpcmanager.client_send_msg((void*)init_data,sizeof(rpc::rpc_data));
-
-            server_run();
         }
+
+        void start(){std::async(&ServerEnt::server_run,this);}
+
         /*
         * the normal procedures of a server
         * including invoke election when timeout, receive RPCs to append entries .etc
@@ -88,21 +88,28 @@ namespace server
                 while(atomic_on_leader_index.test_and_set()){std::this_thread::sleep_for(std::chrono::milliseconds(1));}
                 if(this->server_identity == identity::LEADER)
                 {
-                    // send empty  AppendEntries RPcs to all other servers as the heartbeat
-                    rpc::rpc_data* sent_data = new rpc::rpc_data();
-                    sent_data->src_server_index=this->server_idx;
-                    sent_data->dest_server_index=-1; // to all
-                    sent_data->type = rpc::rpc_type::APPEND_ENTRIES;
-                    rpc::rpc_append_entries* param = new rpc::rpc_append_entries();
-                    param->term = this->current_term;
-                    param->leader_id = this->server_idx;
-                    logmanager.get_last_log_index_term(param->prev_log_index,param->prev_log_term);
-                    param->entries=nullptr;
-                    param->leader_commit = this->commit_index;
-                    sent_data->params = param;
-                    sent_data->is_request=true;
+                    // send AppendEntries RPcs to all other servers
+                    for(const std::pair<int32_t, int32_t>& ele : this->match_index)
+                    {
+                        rpc::rpc_data* sent_data=new rpc::rpc_data();
+                        sent_data->src_server_index=this->server_idx;
+                        sent_data->dest_server_index=ele.first;
+                        sent_data->type=rpc::rpc_type::APPEND_ENTRIES;
+                        rpc::rpc_append_entries* param=new rpc::rpc_append_entries();
+                        param->term=this->current_term;
+                        param->leader_id=this->server_idx;
+                        // replicate log entries range from commit index to match index
+                        param->prev_log_index=ele.second;
+                        param->prev_log_term = logmanager.get_entry_by_index(ele.second).term;
+                        std::vector<log_manager::log_entry>* rep_entries = new std::vector<log_manager::log_entry>();
+                        *rep_entries = logmanager.get_range(ele.second, logmanager.get_log_size()-1);
+                        param->entries = (void*)rep_entries;
+                        param->leader_commit = this->commit_index;
+                        sent_data->params = (void*)param;
+                        sent_data->is_request=true;
 
-                    rpcmanager.client_send_msg((void*)sent_data, sizeof(rpc::rpc_data));
+                        rpcmanager.client_send_msg((void*)sent_data, sizeof(rpc::rpc_data));
+                    }
                     atomic_on_leader_index.clear();
                     reset_timer();
                     on_election=false;
@@ -138,6 +145,20 @@ namespace server
                         rpcmanager.client_send_msg((void*)sent_data,sizeof(rpc::rpc_data));
                         reset_timer();
                     }
+                    else
+                    {
+                        // followers normal process
+                        // check entries to commit
+                        this->commit_index = this->leader_commit;
+                        if(this->commit_index > this->last_applied)
+                        {
+                            // apply these entries onto state machine
+                            std::vector<log_manager::log_entry> entry_comit=\
+                                            logmanager.get_range(this->last_applied+1,this->commit_index);
+                            this->state_machine.update_db(entry_comit);
+                            this->last_applied = this->commit_index;
+                        }
+                    }
                 }
                 // try to receive datas
                 rpc::rpc_data* recv_data = (rpc::rpc_data*)std::get<1>(rpcmanager.recv_data());
@@ -145,6 +166,8 @@ namespace server
                     continue;
                 if(recv_data->is_request)
                 {
+                    // this part solve the request from other servers
+                    // the next part 'else' solve the response of self's requests
                     // process according to RPC type
                     if(recv_data->type == rpc::rpc_type::APPEND_ENTRIES)
                     {
@@ -158,19 +181,28 @@ namespace server
                                 this->current_term=recv_params->term;
                                 this->server_identity = identity::FOLLOWER;
                                 // if param has entries, append entries to target place
-                                int32_t apd_pos=-1;
-                                if((apd_pos=this->logmanager.found_by_term_index(recv_params->prev_log_index,recv_params->prev_log_term)) >=0)
+                                if(recv_params->entries)
                                 {
-                                    // success apply new entries
-                                    logmanager.append_entries_fix_pos(apd_pos,*((std::vector<log_manager::log_entry>*)recv_params->entries));
-                                    recv_params->succ=true;
-                                    recv_params->current_term=this->current_term;
-                                    on_election=false;
+                                    int32_t apd_pos=-1;
+                                    if((apd_pos=this->logmanager.found_by_term_index(recv_params->prev_log_index,recv_params->prev_log_term)) >=0)
+                                    {
+                                        // success apply new entries
+                                        logmanager.append_entries_fix_pos(apd_pos,*((std::vector<log_manager::log_entry>*)recv_params->entries));
+                                        recv_params->prev_log_index = apd_pos+((std::vector<log_manager::log_entry>*)recv_params->entries)->size()-1;
+                                        recv_params->succ=true;
+                                        recv_params->current_term=this->current_term;
+                                        on_election=false;
+                                    }
+                                    else
+                                    {
+                                        recv_params->succ=false;
+                                    }
                                 }
                                 else
                                 {
-                                    recv_params->succ=false;
+                                    recv_params->succ=true;
                                 }
+                                reset_timer();
                             }
                             else
                             {
@@ -196,8 +228,10 @@ namespace server
                                 {
                                     // success apply new entries
                                     logmanager.append_entries_fix_pos(apd_pos,*((std::vector<log_manager::log_entry>*)recv_params->entries));
+                                    recv_params->prev_log_index = apd_pos-1+((std::vector<log_manager::log_entry>*)recv_params->entries)->size();
                                     recv_params->succ=true;
                                     recv_params->current_term=this->current_term;
+                                    on_election=false;
                                 }
                                 else
                                 {
@@ -228,19 +262,22 @@ namespace server
                                 param->vote_granted=true;
                                 this->voted_for=param->candidate_id;
                             }
+                            else
+                            {
+                                param->vote_granted=false;
+                            }
                             on_election=true;
                         }
                         rpcmanager.client_send_msg((void*)recv_data,sizeof(rpc::rpc_data));
                     }
                     else if(recv_data->type == rpc::rpc_type::INSTALL_SNAPSHOT)
                     {
-
                         rpcmanager.client_send_msg((void*)recv_data,sizeof(rpc::rpc_data));
                     }
                 }
                 else
                 {
-                    // read data is response
+                    // read data is response to self's requests
                     // if current server is a leader, the possible RPCs responses is AppendEntries
                     // if a candidate, the possible RPCs responses is RequestVote
                     // followers will not send RPCs proactively, thus no response
@@ -253,18 +290,23 @@ namespace server
                             {
                                 // append entry RPC is not success, since not found in follower's entry
                                 // decrement and retry
-                                param->prev_log_index--;
-                                log_manager::log_entry new_entry = logmanager.get_entry_by_index(param->prev_log_index);
-                                param->prev_log_term = new_entry.term;
-                                std::vector<log_manager::log_entry> *entries = (std::vector<log_manager::log_entry>*)param->entries;
-                                entries->insert(entries->begin(),new_entry);
-                                recv_data->is_request=true;
-                                std::swap(recv_data->src_server_index,recv_data->dest_server_index);
-                                rpcmanager.client_send_msg((void*)recv_data,sizeof(rpc::rpc_data));
+                                // the retry sent is not processed here, this part only update records according responses
+                                match_index[recv_data->src_server_index]=param->prev_log_index-1;
                             }
                             else
                             {
                                 match_index[recv_data->src_server_index]=param->prev_log_index;
+                                replicate_count++;
+                                if(replicate_count >= num_majority)
+                                {
+                                    // log entries have been replicated on major followers
+                                    // the entries before can be committed safely
+                                    std::vector<log_manager::log_entry> comit_logs = logmanager.get_range(last_applied+1, commit_index);
+                                    state_machine.update_db(comit_logs);
+                                    last_applied=commit_index;
+                                    this->leader_commit=commit_index;
+                                    replicate_count=0;
+                                }
                             }
                         }
                     }
@@ -278,6 +320,7 @@ namespace server
                         {
                             // this server get the majority of the votes, become leader
                             this->server_identity = identity::LEADER;
+                            this->leader_id=this->server_idx;
                         }
                     }
                 }
@@ -304,6 +347,7 @@ namespace server
         int32_t server_idx; // the index of the server globally
         int32_t leader_id;
         log_manager::MachineLog logmanager; // the log entries of this server
+        server_sm::SM state_machine; // each server's state_machine, a K-V in memory database
         int32_t current_term;
         int32_t voted_for; // the candidate that receive vote in current term
         int32_t commit_index; // index of highest log entry known to be committed
@@ -319,6 +363,7 @@ namespace server
         bool is_server_running;
         bool on_election;
         int32_t get_vote_count;
+        int32_t replicate_count;
         static const int32_t elect_timeout_low=150;
         static const int32_t elect_timeout_high=300;
         static int32_t num_majority;

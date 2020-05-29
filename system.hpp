@@ -48,10 +48,12 @@ namespace my_system
             int32_t router_port = (int32_t)(config["router_info"].value("port",0));
             std::string router_ip = (std::string)(config["router_info"].value("ip_addr",""));
             opaque_router = new my_router::MyRouter(router_port, router_ip.c_str());
+            std::vector<int32_t> serv_idxs;
             for(nlohmann::json::basic_json::reference ele : config["server_info"])
             {
                 int32_t iden = (int32_t)(ele.value("iden",0)),
                         idx = (int32_t)(ele.value("id",0));
+                serv_idxs.push_back(idx);
                 server::identity identity = (iden == 0 ? server::identity::FOLLOWER : \
                             (iden==1 ? server::identity::CANDIDATE : server::identity::LEADER));
                 std::string ip_addr = (std::string)(ele.value("ip_addr",""));
@@ -60,6 +62,16 @@ namespace my_system
                         idx,identity,(char*)ip_addr.c_str(),port,\
                         router_ip.c_str(),router_port);
                 system_config.servers.emplace_back(new_server);
+            }
+            // initial each server's match index
+            for(server::ServerEnt& sv: system_config.servers)
+            {
+                for(int32_t idx : serv_idxs)
+                {
+                    if(idx == sv.server_idx)
+                        continue;
+                    sv.match_index.insert(std::make_pair(idx,0));
+                }
             }
             server::ServerEnt::num_majority=(system_config.num_servers / 2)+(system_config.num_servers % 2);
             server::ServerEnt::num_servers=system_config.num_servers;

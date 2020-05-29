@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <vector>
+#include <algorithm>
 
 /*
 * offer basic operations for log management
@@ -55,6 +56,22 @@ namespace log_manager
                     return i+1;
             }
             return -1;
+        }
+
+        /*
+        * get log entries in the given range, both bound inclusive
+        */
+        std::vector<log_entry> get_range(int32_t low,int32_t high)
+        {
+            std::vector<log_entry> ans(high-low+1);
+            high = std::min(high,(int32_t)logs.size()-1);
+            ans.assign(logs.begin()+low,logs.begin()+high+1);
+            return ans;
+        }
+
+        int32_t get_log_size()
+        {
+            return logs.size();
         }
 
         log_entry get_entry_by_index(int32_t index)
