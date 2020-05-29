@@ -34,6 +34,23 @@ namespace my_system
     {
     public:
 
+        static void sys_start()
+        {
+            for(server::ServerEnt& serv: system_config.servers)
+            {
+                serv.start();
+            }
+        }
+
+        static void shutdown()
+        {
+            for(server::ServerEnt& serv: system_config.servers)
+            {
+                serv.is_server_running=false;
+            }
+            opaque_router->is_sys_running=false;
+        }
+
         static void parse_json_config(const char* file)
         {
             std::ifstream f;

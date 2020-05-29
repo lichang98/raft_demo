@@ -17,6 +17,7 @@ namespace my_router
             rpcmanager.bind_socket_port(_port);
             // listen and accept has a timeout
             // start a new thread to process
+            is_sys_running=true;
             std::async(&MyRouter::router_run,this);
         }
 
@@ -26,11 +27,16 @@ namespace my_router
             return out;
         }
 
+        ~MyRouter()
+        {
+            rpcmanager.close_socket();
+        }
+        bool is_sys_running;
     private:
 
         void router_run()
         {
-            while(true)
+            while(is_sys_running)
             {
                 rpcmanager.listen_and_accept();
                 // try to read from connections
@@ -41,6 +47,7 @@ namespace my_router
                     {
                         id2sock_fd.insert(std::make_pair(recv_data->src_server_index,\
                                     *(rpcmanager.accepted_socket_fds.end()-1)));
+                        LOG(INFO) << "router accept connection from server " << recv_data->src_server_index;
                     }
                     else
                     {
@@ -48,6 +55,8 @@ namespace my_router
                         {
                             int32_t target_sock_fd = id2sock_fd[recv_data->dest_server_index];
                             rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
+                            LOG(INFO) << "router receive from " << recv_data->src_server_index << 
+                                ", and redirect it to " << recv_data->dest_server_index;
                         }
                         else
                         {
@@ -58,6 +67,8 @@ namespace my_router
                                     continue;
                                 recv_data->dest_server_index = ele.first;
                                 rpcmanager.send_msg(ele.second,(void*)recv_data,sizeof(rpc::rpc_data));
+                                LOG(INFO) << "server idx=" << recv_data->src_server_index <<\
+                                         " broadcast, send to server " << ele.first;
                             }
                         }
                     }

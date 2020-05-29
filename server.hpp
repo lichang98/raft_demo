@@ -41,7 +41,6 @@ namespace server
             this->match_index=other.match_index;
             this->leader_commit=other.leader_commit;
             this->is_server_running=other.is_server_running;
-            this->on_election=other.on_election;        
             this->get_vote_count=other.get_vote_count;
         }
         /*
@@ -61,7 +60,6 @@ namespace server
             leader_id=-1;
 
             is_server_running=true;
-            on_election=false;
             voted_for=-1;
             get_vote_count=0;
             reset_timer();
@@ -107,12 +105,13 @@ namespace server
                         param->leader_commit = this->commit_index;
                         sent_data->params = (void*)param;
                         sent_data->is_request=true;
-
+                        LOG(INFO) << "leader " << this->server_idx << ", send AppendEntries RPC to server " << ele.first\
+                            << ", log range low=" << ele.second << ", range high=" << logmanager.get_log_size()-1\
+                            << ", commit index=" << this->leader_commit << ", current term=" << this->current_term;
                         rpcmanager.client_send_msg((void*)sent_data, sizeof(rpc::rpc_data));
                     }
                     atomic_on_leader_index.clear();
                     reset_timer();
-                    on_election=false;
                 }
                 else
                 {
@@ -121,7 +120,7 @@ namespace server
                     // random election timeout can avoid conflict, and selected in range 150 to 300 ms
                     int32_t rand_timeout = random()%(elect_timeout_high-elect_timeout_low)\
                                                     +elect_timeout_low;
-                    if(!on_election && get_current_tm() >= rand_timeout)
+                    if(this->server_identity == identity::FOLLOWER && get_current_tm() >= rand_timeout)
                     {
                         // invoke election, send RequestVote RPCs to all other servers
                         // during election, past RPCs from other machines may arrive
@@ -129,7 +128,6 @@ namespace server
                         this->current_term++; // firstly add current term
                         this->server_identity = identity::CANDIDATE;
                         // send RequestVote RPCs to all other servers
-                        on_election = true;
                         rpc::rpc_data* sent_data = new rpc::rpc_data();
                         rpc::rpc_requestvote* req_vote = new rpc::rpc_requestvote();
 
@@ -142,10 +140,12 @@ namespace server
                         req_vote->term=this->current_term;
                         logmanager.get_last_log_index_term(req_vote->last_log_index,req_vote->last_log_term);
                         sent_data->params = req_vote;
+                        LOG(INFO) << "invoke election, current term=" << this->current_term << ", server idx="\
+                            << this->server_idx;
                         rpcmanager.client_send_msg((void*)sent_data,sizeof(rpc::rpc_data));
                         reset_timer();
                     }
-                    else
+                    else if(this->server_identity == identity::FOLLOWER)
                     {
                         // followers normal process
                         // check entries to commit
@@ -157,6 +157,8 @@ namespace server
                                             logmanager.get_range(this->last_applied+1,this->commit_index);
                             this->state_machine.update_db(entry_comit);
                             this->last_applied = this->commit_index;
+                            LOG(INFO) << "server idx=" << this->server_idx << ", commit entries from " << this->last_applied+1\
+                                << " to " << this->commit_index;
                         }
                     }
                 }
@@ -178,8 +180,11 @@ namespace server
                             // current server's term, current server change to follower
                             if(recv_params->term >= this->current_term)
                             {
+                                LOG(INFO) << "current server is candidate or leader, idx=" << this->server_idx\
+                                    << ", confirm src server " << recv_data->src_server_index << " to be leader";
                                 this->current_term=recv_params->term;
                                 this->server_identity = identity::FOLLOWER;
+                                this->leader_id=recv_data->src_server_index;
                                 // if param has entries, append entries to target place
                                 if(recv_params->entries)
                                 {
@@ -191,7 +196,8 @@ namespace server
                                         recv_params->prev_log_index = apd_pos+((std::vector<log_manager::log_entry>*)recv_params->entries)->size()-1;
                                         recv_params->succ=true;
                                         recv_params->current_term=this->current_term;
-                                        on_election=false;
+                                        LOG(INFO) << "current server idx=" << this->server_idx << ", append entries "<<\
+                                                " from pos " << apd_pos << ", length=" << ((std::vector<log_manager::log_entry>*)recv_params->entries)->size();
                                     }
                                     else
                                     {
@@ -203,6 +209,7 @@ namespace server
                                     recv_params->succ=true;
                                 }
                                 reset_timer();
+                                voted_for=-1;
                             }
                             else
                             {
@@ -218,6 +225,7 @@ namespace server
                             {
                                 recv_params->succ=false;
                                 recv_params->current_term=this->current_term;
+                                LOG(INFO) << "current server " << this->server_idx << " is a follower, reject invalid appendEntries RPC";
                             }
                             else
                             {
@@ -231,7 +239,8 @@ namespace server
                                     recv_params->prev_log_index = apd_pos-1+((std::vector<log_manager::log_entry>*)recv_params->entries)->size();
                                     recv_params->succ=true;
                                     recv_params->current_term=this->current_term;
-                                    on_election=false;
+                                    LOG(INFO) << "current server idx=" << this->server_idx << ", append entries "<<\
+                                                " from pos " << apd_pos << ", length=" << ((std::vector<log_manager::log_entry>*)recv_params->entries)->size();
                                 }
                                 else
                                 {
@@ -251,6 +260,7 @@ namespace server
                         {
                             param->term=this->current_term;
                             param->vote_granted=false;
+                            LOG(INFO) << "current server idx=" << this->server_idx<< ", reject invalid RequestVote";
                         }
                         else
                         {
@@ -261,12 +271,13 @@ namespace server
                             {
                                 param->vote_granted=true;
                                 this->voted_for=param->candidate_id;
+                                LOG(INFO) << "current server idx=" << this->server_idx << ", grant vote to " << param->candidate_id;
                             }
                             else
                             {
                                 param->vote_granted=false;
+                                LOG(INFO) << "current server idx=" << this->server_idx << ", no grant vote to " << param->candidate_id;
                             }
-                            on_election=true;
                         }
                         rpcmanager.client_send_msg((void*)recv_data,sizeof(rpc::rpc_data));
                     }
@@ -292,15 +303,21 @@ namespace server
                                 // decrement and retry
                                 // the retry sent is not processed here, this part only update records according responses
                                 match_index[recv_data->src_server_index]=param->prev_log_index-1;
+                                LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response fail," <<\
+                                            " log index minus 1, =" << param->prev_log_index-1 << ", for dest follower " << recv_data->src_server_index;
                             }
                             else
                             {
                                 match_index[recv_data->src_server_index]=param->prev_log_index;
                                 replicate_count++;
+                                LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response success"
+                                    << ", currently total replicate count=" << replicate_count;
                                 if(replicate_count >= num_majority)
                                 {
                                     // log entries have been replicated on major followers
                                     // the entries before can be committed safely
+                                    LOG(INFO) << "current server idx=" << this->server_idx << ", has replicated on major followers"
+                                            << ", commit index=" << commit_index << ", last_applied=" << last_applied;
                                     std::vector<log_manager::log_entry> comit_logs = logmanager.get_range(last_applied+1, commit_index);
                                     state_machine.update_db(comit_logs);
                                     last_applied=commit_index;
@@ -314,6 +331,8 @@ namespace server
                     {
                         // current server is a candidate, possible responses of RPCs is RequestVote
                         rpc::rpc_requestvote* rpc_param = (rpc::rpc_requestvote*)recv_data->params;
+                        LOG(INFO) << "current server idx=" << this->server_idx << ", get response from "\
+                            <<  recv_data->src_server_index << ", flag of grant vote=" << rpc_param->vote_granted;
                         if(rpc_param->vote_granted)
                             get_vote_count++;
                         if(get_vote_count >= num_majority)
@@ -321,10 +340,13 @@ namespace server
                             // this server get the majority of the votes, become leader
                             this->server_identity = identity::LEADER;
                             this->leader_id=this->server_idx;
+                            LOG(INFO) << "current server idx=" << this->server_idx << ", get major votes become leader";
                         }
                     }
                 }
             }
+            // release resources
+            rpcmanager.close_socket();
         }
 
         void reset_timer()
@@ -361,7 +383,6 @@ namespace server
         int32_t leader_commit; // leader's commit index
 
         bool is_server_running;
-        bool on_election;
         int32_t get_vote_count;
         int32_t replicate_count;
         static const int32_t elect_timeout_low=150;

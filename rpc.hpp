@@ -152,7 +152,7 @@ namespace rpc
         addr.sin_port = port;
         if(inet_aton(ip_addr,&addr.sin_addr) < 0)
         {
-            perror("inet_aton");
+            LOG(ERROR) << "inet_aton conversion failed";
             exit(1);
         }
         return addr;
@@ -172,7 +172,7 @@ namespace rpc
             this->self_socket_fd = socket(AF_INET,SOCK_STREAM,0);
             if(this->self_socket_fd < 0)
             {
-                perror("socker");
+                LOG(ERROR) << "socket create failed";
                 exit(1);
             }
         }
@@ -187,7 +187,7 @@ namespace rpc
         {
             if(this->self_socket_fd < 0)
             {
-                perror("incorrect socket file description!");
+                LOG(ERROR) << "incorrect socket file description!";
                 return false;
             }
             sockaddr_in serv_addr;
@@ -197,7 +197,7 @@ namespace rpc
             serv_addr.sin_addr.s_addr=htonl(INADDR_ANY);
             if(bind(this->self_socket_fd, (const sockaddr*)&serv_addr,sizeof(sockaddr_in)) < 0)
             {
-                perror("bind");
+                LOG(ERROR) << "bind failed, address port already be binded!!";
                 exit(1);
             }
             return true;
@@ -217,12 +217,13 @@ namespace rpc
             server_addr.sin_port = htons(_server_port);
             if(inet_aton(_serv_addr, &server_addr.sin_addr) <0)
             {
-                perror("inet_atop");
+                LOG(ERROR) << "inet_aton filed!";
                 exit(1);
             }
             if(connect(this->self_socket_fd,(const sockaddr *)&server_addr,sizeof(sockaddr_in))< 0)
             {
-                perror("connect");
+                LOG(ERROR) << "connection filed, the server address may be incorrect, with server ip=" << _serv_addr\
+                        << ", server port=" << _server_port;
                 exit(1);
             }
             // client record the countpart server's ip and port
@@ -251,27 +252,17 @@ namespace rpc
                 return false;
             if(listen(this->self_socket_fd,RECV_BACKLOG_SIZE) < 0)
             {
-                perror("listen");
+                LOG(ERROR) << "server listen failed!";
                 exit(1);
             }
             RECV_BACKLOG_SIZE--;
             sockaddr_in client_addr;
             socklen_t addr_len=sizeof(sockaddr_in);
             int32_t client_sock_fd = accept(this->self_socket_fd,(sockaddr*)&client_addr,&addr_len);
-
             accepted_socket_fds.push_back(client_sock_fd);
-
-            // if(getpeername(client_sock_fd,(sockaddr*)&client_addr,&addr_len) < 0)
-            // {
-            //     perror("getpeername");
-            //     exit(1);
-            // }
-            // char *ip_addr = inet_ntoa(client_addr.sin_addr);
-            // printf("accept ip=%s, port=%u\n",ip_addr, ntohs(client_addr.sin_port));
-
             if(client_sock_fd <0)
             {
-                perror("accept");
+                LOG(ERROR) << "server accept connection failed!";
                 exit(1);
             }
 
@@ -288,7 +279,7 @@ namespace rpc
             int32_t real_send_len=0;
             if((real_send_len = send(target_sock_fd, (const void*)msg, len,0) )<0)
             {
-                perror("send");
+                LOG(ERROR) << "server send message failed!";
                 exit(1);
             }
             return real_send_len;
@@ -302,7 +293,7 @@ namespace rpc
             ssize_t real_send = write(this->self_socket_fd, msg,msg_len);
             if(real_send < 0)
             {
-                perror("write");
+                LOG(ERROR) << "client send message failed!";
                 exit(1);
             }
             return real_send;
@@ -360,7 +351,7 @@ namespace rpc
                 ssize_t real_recv_len = read(this->self_socket_fd,(void*)data,RECV_BUFFER_SIZE);
                 if(real_recv_len <0)
                 {
-                    perror("socket read");
+                    LOG(ERROR) << "socket read filed for server";
                     exit(1);
                 }
                 return data;
@@ -371,7 +362,7 @@ namespace rpc
         {
             if(close(this->self_socket_fd) < 0)
             {
-                perror("close socket");
+                LOG(ERROR) << "socket close failed!";
                 exit(1);
             }
             delete[] server_ip;
