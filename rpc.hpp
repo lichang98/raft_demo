@@ -58,6 +58,7 @@ namespace rpc
         const static int32_t REQUEST_VOTE=1;
         const static int32_t APPEND_ENTRIES=2;
         const static int32_t INSTALL_SNAPSHOT=3; 
+        const static int32_t CLIENT_REQUEST=4;
     };
 
     // this rpc invoked by candidates to gather votes
@@ -129,6 +130,15 @@ namespace rpc
         // values for return
         int32_t current_term; // for leader to update itself
     };
+
+    struct client_request
+    {
+        // the command that client request system to process
+        // in this project, int this project, client send one KV pair each time
+        void* data; 
+        size_t data_size;
+    };
+    
     
    /*
     * the send/recv data struct
@@ -381,7 +391,7 @@ namespace rpc
                         if(real_recv_len <0)
                         {
                             LOG(ERROR) << "socket read failed for server";
-                            exit(1);
+                            return nullptr;
                         }
                         else
                         {

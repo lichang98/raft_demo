@@ -7,31 +7,26 @@
     "server_info":[
         {
             "id":0,
-            "iden":0,
             "ip_addr":"127.0.0.1",
             "port":60000
         },
         {
             "id":1,
-            "iden":0,
             "ip_addr":"127.0.0.1",
             "port":60001
         },
         {
             "id":2,
-            "iden":0,
             "ip_addr":"127.0.0.1",
             "port":60002
         },
         {
             "id":3,
-            "iden":0,
             "ip_addr":"127.0.0.1",
             "port":60003
         },
         {
             "id":4,
-            "iden":0,
             "ip_addr":"127.0.0.1",
             "port":60004
         }

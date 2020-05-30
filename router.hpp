@@ -20,7 +20,7 @@ namespace my_router
             is_sys_running=true;
             LOG(INFO) << "router running, at ip=" << _ip << ", port=" << _port;
             std::thread(&MyRouter::router_run,this).detach();
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // be sure the router run first
         }
 
         friend std::ostream& operator<<(std::ostream& out, MyRouter &obj)
@@ -34,6 +34,8 @@ namespace my_router
             rpcmanager.close_socket();
         }
         bool is_sys_running;
+        int32_t port;
+        char* ip_addr;
     private:
 
         void router_run()
@@ -46,11 +48,33 @@ namespace my_router
                 rpc::rpc_data* recv_data = (rpc::rpc_data*)rpcmanager.server_recv_data();
                 if(recv_data)
                 {
-                    if(recv_data == rpc::rpc_type::CONN)
+                    if(recv_data->type == rpc::rpc_type::CONN)
                     {
                         id2sock_fd.insert(std::make_pair(recv_data->src_server_index,\
                                     *(rpcmanager.accepted_socket_fds.end()-1)));
                         LOG(INFO) << "router accept connection from server " << recv_data->src_server_index;
+                    }
+                    else if(recv_data->type == rpc::rpc_type::CLIENT_REQUEST)
+                    {
+                        // if the request is from client, the request need to redirect to current leader
+                        // here mark client index=-2, there is only one client push command request to system
+                        if(id2sock_fd.find(-2) == id2sock_fd.end())
+                            id2sock_fd.insert(std::make_pair(-2,*(rpcmanager.accepted_socket_fds.end()-1)));
+                        LOG(INFO) << "router accept client connection";
+                        // redirect to an arbitrary server, if the server is not the leader, it will redirect
+                        // the request to current leader
+                        int32_t target_sock_fd=-1;
+                        for(const std::pair<int32_t, int32_t>& ele : id2sock_fd)
+                        {
+                            if(ele.first != -2)
+                            {
+                                recv_data->dest_server_index = ele.first;
+                                target_sock_fd=ele.second;
+                                break;
+                            }
+                        }
+                        LOG(INFO) << "router redirect msg to server " << recv_data->dest_server_index;
+                        rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
                     }
                     else
                     {
@@ -79,8 +103,6 @@ namespace my_router
             }
         }
         rpc::RPCManager rpcmanager;
-        int32_t port;
-        char* ip_addr;
         // map from id to sockfd
         std::unordered_map<int32_t, int32_t> id2sock_fd;
     };

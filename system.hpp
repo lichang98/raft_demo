@@ -71,17 +71,14 @@ namespace my_system
             std::vector<int32_t> serv_idxs;
             for(nlohmann::json::basic_json::reference ele : config["server_info"])
             {
-                int32_t iden = (int32_t)(ele.value("iden",0)),
-                        idx = (int32_t)(ele.value("id",0));
+                int32_t idx = (int32_t)(ele.value("id",0));
                 serv_idxs.push_back(idx);
-                server::identity identity = (iden == 0 ? server::identity::FOLLOWER : \
-                            (iden==1 ? server::identity::CANDIDATE : server::identity::LEADER));
                 std::string ip_addr = (std::string)(ele.value("ip_addr",""));
                 int32_t port=(int32_t)(ele.value("port",0));
                 LOG(INFO) << "create new server instance, idx=" << idx << ", ip=" <<ip_addr << ", port="
                     << port;
                 server::ServerEnt new_server(\
-                        idx,identity,(char*)ip_addr.c_str(),port,\
+                        idx,(char*)ip_addr.c_str(),port,\
                         router_ip.c_str(),router_port);
                 system_config.servers.emplace_back(new_server);
             }

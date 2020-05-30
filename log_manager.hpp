@@ -14,6 +14,9 @@ namespace log_manager
     struct kv_data
     {
         int32_t k,v;
+
+        kv_data():k(0),v(0){}
+        kv_data(int32_t _k, int32_t _v):k(_k),v(_v){}
     };
     /*
     * one entry in the log
@@ -88,6 +91,12 @@ namespace log_manager
 
         void get_last_log_index_term(int32_t &index, int32_t& term)
         {
+            if(logs.empty())
+            {
+                index=-1;
+                term=-1;
+                return;
+            }
             int32_t n=logs.size();
             index = logs[n-1].index;
             term=logs[n-1].term;
