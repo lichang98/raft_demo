@@ -18,7 +18,9 @@ namespace my_router
             // listen and accept has a timeout
             // start a new thread to process
             is_sys_running=true;
-            std::async(&MyRouter::router_run,this);
+            LOG(INFO) << "router running, at ip=" << _ip << ", port=" << _port;
+            std::thread(&MyRouter::router_run,this).detach();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
 
         friend std::ostream& operator<<(std::ostream& out, MyRouter &obj)
@@ -38,9 +40,10 @@ namespace my_router
         {
             while(is_sys_running)
             {
+                LOG(INFO) << "router listen for connection with timeout 10ms";
                 rpcmanager.listen_and_accept();
                 // try to read from connections
-                rpc::rpc_data* recv_data = rpcmanager.server_recv_data();
+                rpc::rpc_data* recv_data = (rpc::rpc_data*)rpcmanager.server_recv_data();
                 if(recv_data)
                 {
                     if(recv_data == rpc::rpc_type::CONN)

@@ -69,11 +69,14 @@ namespace server
             rpc::rpc_data* init_data = new rpc::rpc_data();
             init_data->src_server_index = _idx;
             init_data->type=rpc::rpc_type::CONN;
+            LOG(INFO)<< "server " << _idx << ", try connect opaque router";
             rpcmanager.create_connection((char*)opaque_server,opaque_server_port);
+            LOG(INFO) << "server " << _idx << ", connected to router, try send conn rpc";
             rpcmanager.client_send_msg((void*)init_data,sizeof(rpc::rpc_data));
+            LOG(INFO) << "server " << _idx << " sent conn to router finish";
         }
 
-        void start(){std::async(&ServerEnt::server_run,this);}
+        void start(){std::thread(&ServerEnt::server_run,this).detach();}
 
         /*
         * the normal procedures of a server

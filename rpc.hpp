@@ -11,6 +11,8 @@
 #include <malloc.h>
 #include <string.h>
 #include <utility>
+#include <chrono>
+#include <thread>
 #include <unordered_map>
 #include <tuple>
 #include <vector>
@@ -185,6 +187,7 @@ namespace rpc
         */
         bool bind_socket_port(int32_t port)
         {
+            LOG(INFO) << "bind socket at port " << port;
             if(this->self_socket_fd < 0)
             {
                 LOG(ERROR) << "incorrect socket file description!";
@@ -211,6 +214,7 @@ namespace rpc
         */
         void create_connection(char* _serv_addr, int32_t _server_port)
         {
+            LOG(INFO) << "create connection to ip=" << _serv_addr << ", port=" << _server_port;
             sockaddr_in server_addr;
             memset(&server_addr,0,sizeof(sockaddr_in));
             server_addr.sin_family=AF_INET;
@@ -239,6 +243,7 @@ namespace rpc
         */
         bool listen_and_accept(int32_t timeout_milliseconds=10)
         {
+            LOG(INFO) << "server listen for connection";
             if(RECV_BACKLOG_SIZE <=0)
                 return false;
             fd_set rd;
@@ -249,7 +254,10 @@ namespace rpc
             tv.tv_usec=timeout_milliseconds*1000;
             int32_t flag =select(this->self_socket_fd+1,&rd,nullptr,nullptr,&tv);
             if(flag == 0 || flag ==-1)
+            {
+                LOG(INFO) << "server listen timeout";
                 return false;
+            }
             if(listen(this->self_socket_fd,RECV_BACKLOG_SIZE) < 0)
             {
                 LOG(ERROR) << "server listen failed!";
@@ -265,14 +273,14 @@ namespace rpc
                 LOG(ERROR) << "server accept connection failed!";
                 exit(1);
             }
-
+            LOG(INFO) << "server listen and accepted a client";
             return true;
         }
 
         /*
         * send message to the target socket
-        * Notice that, this function only used by the server who connected from client
-        * notice that the sended message struct need have a type attribute, the possible values are in rpc_type
+        * Notice that, this function only used by the server
+        * because server send data onto accepted socket
         */
         ssize_t send_msg(int32_t target_sock_fd, const void* msg, size_t len)
         {
@@ -287,10 +295,12 @@ namespace rpc
 
         /*
         * client use this message to send server that have build connection
+        * different server's behaviour, client just need to write data on self's socket, and server can receive
         */
         ssize_t client_send_msg(void *msg, size_t msg_len)
         {
             ssize_t real_send = write(this->self_socket_fd, msg,msg_len);
+            LOG(INFO) << "client sent data with size=" << msg_len << ", real send=" << real_send;
             if(real_send < 0)
             {
                 LOG(ERROR) << "client send message failed!";
@@ -301,12 +311,14 @@ namespace rpc
 
         /*
         * receive data from the socket created at localhost, it will block until data arrive
-        * Notice that the 
+        * Notice that the function is special for client
+        * client read self's socket to receive data from server
         */
-        std::tuple<int32_t, void*> recv_data(const int32_t timeout_millisec=3)
+        std::tuple<int32_t, void*> recv_data(size_t read_size=RECV_BUFFER_SIZE,const int32_t timeout_millisec=3)
         {
-            // char *recv_buf = new char[RECV_BUFFER_SIZE];
-            rpc_data* data = new rpc_data();
+            LOG(INFO) << "client try receive data";
+            void* data =(void*) new char[read_size+1];
+            bzero(data,read_size+1);
             fd_set rd;
             timeval tv;
             FD_ZERO(&rd);
@@ -317,44 +329,66 @@ namespace rpc
             if(ret == 0 || ret==-1)
             {
                 // read timeout
+                LOG(INFO) << "client try read timeout";
                 return std::make_tuple(-1,nullptr);
             }
             else
             {
-                ssize_t real_recv = read(this->self_socket_fd,data,RECV_BUFFER_SIZE);
+                ssize_t real_recv = read(this->self_socket_fd,data,read_size);
+                LOG(INFO) << "client try read, size=" << real_recv;
                 return std::make_tuple(real_recv, (void*)data);
             }
         }
 
         /*
         *   this function used for server to receive data
-        * 
+        *   different from client, server need to read from accepted client sockets to receive data from clients
+        *   
         */
-        rpc::rpc_data *server_recv_data(const int32_t timeout_millisec=3)
+        void *server_recv_data(size_t read_size=RECV_BUFFER_SIZE,const int32_t timeout_millisec=3)
         {
-            rpc::rpc_data *data=new rpc::rpc_data();
+            LOG(INFO) << "server try receive";
+            void* data = (void*)new char[read_size+1];
+            bzero(data,read_size+1);
+
             fd_set rd;
             timeval tv;
             int32_t flag=0;
             FD_ZERO(&rd);
-            FD_SET(0,&rd);
+            int32_t max_val=0;
+            for(int32_t sock_fd : accepted_socket_fds)
+            {
+                FD_SET(sock_fd, &rd);
+                max_val=std::max(max_val, sock_fd);
+            }
             tv.tv_sec=0;
             tv.tv_usec=timeout_millisec*1000;
-            flag = select(1,&rd,nullptr,nullptr,&tv);
-            if(flag==0 || flag==-1)
+            flag = select(max_val+1, &rd,nullptr,nullptr,&tv);
+            if(flag==0|| flag==-1)
             {
                 // timeout
+                LOG(INFO) << "server try receive timeout";
                 return nullptr;
             }
             else
             {
-                ssize_t real_recv_len = read(this->self_socket_fd,(void*)data,RECV_BUFFER_SIZE);
-                if(real_recv_len <0)
+                for(int32_t sock_fd : accepted_socket_fds)
                 {
-                    LOG(ERROR) << "socket read filed for server";
-                    exit(1);
+                    if(FD_ISSET(sock_fd,&rd))
+                    {
+                        ssize_t real_recv_len = read(sock_fd,data,read_size);
+                        LOG(INFO) << "server real recv data size=" << real_recv_len;
+                        if(real_recv_len <0)
+                        {
+                            LOG(ERROR) << "socket read failed for server";
+                            exit(1);
+                        }
+                        else
+                        {
+                            return data;
+                        }
+                    }
                 }
-                return data;
             }
         }
 
