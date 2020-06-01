@@ -41,7 +41,7 @@ namespace client
                 param->data[index++] = entry;
             }
             param->real_bring = index;
-            data->params = static_cast<void*>(param);
+            data->params.clt = *param;
             fs.close();
             return data;
         }

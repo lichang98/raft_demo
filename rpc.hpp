@@ -347,26 +347,18 @@ namespace rpc
             if(type == rpc::rpc_type::APPEND_ENTRIES)
             {
                 params.apd.deserialize(q);
-                // params =static_cast<void*>(new rpc::rpc_append_entries());
-                // static_cast<rpc::rpc_append_entries*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::CLIENT_REQUEST)
             {
                 params.clt.deserialize(q);
-                // params = static_cast<void*>(new rpc::client_request());
-                // static_cast<rpc::client_request*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
             {
                 params.inst.deserialize(q);
-                // params = static_cast<void*>(new rpc::rpc_install_snapshot_rpc());
-                // static_cast<rpc::rpc_install_snapshot_rpc*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::REQUEST_VOTE)
             {
                 params.req_vote.deserialize(q);
-                // params = static_cast<void*>(new rpc::rpc_requestvote());
-                // static_cast<rpc::rpc_requestvote*>(params)->deserialize(q);
             }
         }
 
@@ -400,40 +392,24 @@ namespace rpc
                 char *apd=nullptr;
                 params.apd.serialize(apd);
                 memcpy(q,apd,params.apd.serialize_size());
-                // strncpy(q,apd,strlen(apd));
-                // q += strlen(apd);
-                // *q = '\0';
             }
             else if(type == rpc_type::CLIENT_REQUEST)
             {
                 char* clit = nullptr;
                 params.clt.serialize(clit);
                 memcpy(q,clit,params.clt.serialize_size());
-                // static_cast<rpc::client_request*>(params)->serialize(clit);
-                // strncpy(q,clit,strlen(clit));
-                // q += strlen(clit);
-                // *q = '\0';
             }
             else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
             {
                 char* inst = nullptr;
                 params.inst.serialize(inst);
                 memcpy(q,inst,params.inst.serialize_size());
-                // static_cast<rpc::rpc_install_snapshot_rpc*>(params)->serialize(inst);
-                // strncpy(q,inst,strlen(inst));
-                // q += strlen(inst);
-                // *q = '\0';
             }
             else if(type == rpc::rpc_type::REQUEST_VOTE)
             {
                 char* req_vote = nullptr;
                 params.req_vote.serialize(req_vote);
                 memcpy(q,req_vote,params.req_vote.serialize_size());
-                // int32_t *test = (int32_t*)req_vote;
-                // static_cast<rpc::rpc_requestvote*>(params)->serialize(req_vote);
-                // strncpy(q,req_vote, strlen(req_vote));
-                // q += strlen(req_vote);
-                // *q = '\0';
             }
         }
     };
@@ -628,7 +604,6 @@ namespace rpc
             {
                 ssize_t real_recv = read(this->self_socket_fd,(void*)data,read_size);
                 LOG(INFO) << "client try read, size=" << real_recv;
-                data[read_size-1]='\0';
                 return std::make_tuple(real_recv, data);
             }
         }
@@ -678,7 +653,6 @@ namespace rpc
                         }
                         else
                         {
-                            data[read_size-1]='\0';
                             return data;
                         }
                     }

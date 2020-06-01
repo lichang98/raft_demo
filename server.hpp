@@ -116,7 +116,7 @@ namespace server
                             param->entries[i] = rep_entries[i];
                         param->real_bring=rep_entries.size();
                         param->leader_commit = this->commit_index;
-                        sent_data->params = (void*)param;
+                        sent_data->params.apd = *param; // append entries params
                         sent_data->is_request=true;
                         LOG(INFO) << "leader " << this->server_idx << ", send AppendEntries RPC to server " << ele.first\
                             << ", log range low=" << ele.second << ", range high=" << logmanager.get_log_size()-1\
@@ -156,7 +156,7 @@ namespace server
                         req_vote->candidate_id=this->server_idx;
                         req_vote->term=this->current_term;
                         logmanager.get_last_log_index_term(req_vote->last_log_index,req_vote->last_log_term);
-                        sent_data->params = static_cast<void*>(req_vote);
+                        sent_data->params.req_vote = *req_vote;
                         LOG(INFO) << "invoke election, current term=" << this->current_term << ", server idx="\
                             << this->server_idx;
                         char* send_ch=nullptr;
@@ -203,10 +203,10 @@ namespace server
                         if(this->server_identity == identity::LEADER)
                         {
                             // append log entries, and issue AppendEntries RPCs to replicate new entries
-                            rpc::client_request* req = (rpc::client_request*)recv_data->params;
-                            std::vector<my_data_type::log_entry>* entries = \
-                                (std::vector<my_data_type::log_entry>*)req->data;
-                            logmanager.append_entries(*entries);
+                            // rpc::client_request* req = (rpc::client_request*)recv_data->params;
+                            rpc::client_request* req = &recv_data->params.clt;
+                            std::vector<my_data_type::log_entry> entries(req->data,req->data+(req->real_bring));
+                            logmanager.append_entries(entries);
                             int32_t last_term;
                             logmanager.get_last_log_index_term(this->commit_index,last_term);
                             this->leader_commit=this->commit_index;
@@ -227,8 +227,8 @@ namespace server
                     }
                     else if(recv_data->type == rpc::rpc_type::APPEND_ENTRIES)
                     {
-                        rpc::rpc_append_entries* recv_params = (rpc::rpc_append_entries*)recv_data->params;
-                        if(this->server_identity == identity::CANDIDATE|| this->server_identity == identity::LEADER)
+                        rpc::rpc_append_entries* recv_params = &recv_data->params.apd;
+                        if(this->server_identity == identity::CANDIDATE || this->server_identity == identity::LEADER)
                         {
                             // check the term along with the RPCs, if the term is no smaller than
                             // current server's term, current server change to follower
@@ -280,7 +280,7 @@ namespace server
                         else
                         {
                             // check term along with the RPC
-                            rpc::rpc_append_entries* recv_params = (rpc::rpc_append_entries*)recv_data->params;
+                            rpc::rpc_append_entries* recv_params = &recv_data->params.apd;
                             if(recv_params->term < this->current_term)
                             {
                                 recv_params->succ=false;
@@ -331,7 +331,7 @@ namespace server
                         // Reply false if term < currentTerm
                         // If votedFor is null or candidateId, and candidate’s log is at
                         // least as up-to-date as receiver’s log, grant vote
-                        rpc::rpc_requestvote* param = static_cast<rpc::rpc_requestvote*>(recv_data->params);
+                        rpc::rpc_requestvote* param = &recv_data->params.req_vote;
                         if(param->term < this->current_term)
                         {
                             param->term=this->current_term;
@@ -355,9 +355,6 @@ namespace server
                                 LOG(INFO) << "current server idx=" << this->server_idx << ", no grant vote to " << param->candidate_id;
                             }
                         }
-                        LOG(INFO) << "this server " << this->server_idx << ", receive request vote  from " << recv_data->src_server_index
-                            << " to self " << recv_data->dest_server_index << ", flag grant=" << static_cast<rpc::rpc_requestvote*>(recv_data->params)->vote_granted
-                            << ", param's grant flag=" << param->vote_granted;
                         recv_data->is_request=false;
                         std::swap(recv_data->src_server_index,recv_data->dest_server_index);
                         char* sent_ch=nullptr;
@@ -381,7 +378,7 @@ namespace server
                     // followers will not send RPCs proactively, thus no response
                     if(this->server_identity ==identity::LEADER)
                     {
-                        rpc::rpc_append_entries* param = (rpc::rpc_append_entries*)recv_data->params;
+                        rpc::rpc_append_entries* param = &recv_data->params.apd;
                         if(recv_data->type == rpc::rpc_type::APPEND_ENTRIES)
                         {
                             if(!param->succ)
@@ -421,7 +418,7 @@ namespace server
                         // current server is a candidate, possible responses of RPCs is RequestVote
                         if(recv_data->type == rpc::rpc_type::REQUEST_VOTE)
                         {
-                            rpc::rpc_requestvote* rpc_param = (rpc::rpc_requestvote*)recv_data->params;
+                            rpc::rpc_requestvote* rpc_param = &recv_data->params.req_vote;
                             LOG(INFO) << "current server idx=" << this->server_idx << ", get response from "\
                                 <<  recv_data->src_server_index << ", flag of grant vote=" << rpc_param->vote_granted;
                             if(rpc_param->vote_granted)
