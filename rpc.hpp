@@ -83,7 +83,7 @@ namespace rpc
         */
         static int32_t serialize_size()
         {
-            return 22;
+            return 21;
         }
 
         /*
@@ -91,7 +91,7 @@ namespace rpc
         */
         void serialize(char *&serialize_msg)
         {
-            serialize_msg = new char[22]; // the total size of elements of struct is 21 bytes(no alignment)
+            serialize_msg = new char[21]; // the total size of elements of struct is 21 bytes(no alignment)
             int32_t *p = (int32_t*)serialize_msg;
             *p = term;++p;
             *p = candidate_id;++p;
@@ -100,7 +100,6 @@ namespace rpc
             *p= current_term;++p;
             char* q=(char*)p;
             *q = vote_granted ? '1':'0';
-            serialize_msg[21]='\0';
         }
         /*
         * reconstruct data of struct from serialized string message
@@ -151,13 +150,13 @@ namespace rpc
 
         static int32_t serialize_size()
         {
-            return 29+RPC_MAX_DATA_BRING*16+1;
+            return 29+RPC_MAX_DATA_BRING*16;
         }
 
         void serialize(char*& msg)
         {
             int32_t size=28+1+RPC_MAX_DATA_BRING*16;
-            msg = new char[size+1];
+            msg = new char[size];
             int32_t *p = (int32_t*)msg;
             *p = term;++p;
             *p = leader_id;++p;
@@ -175,7 +174,6 @@ namespace rpc
             *p = current_term;++p;
             char* q=(char*)p;
             *q = succ ? '1':'0';
-            msg[size]='\0';
         }
 
         void deserialize(const char* msg)
@@ -225,13 +223,13 @@ namespace rpc
 
         static int32_t serialize_size()
         {
-            return 29+16*RPC_MAX_DATA_BRING+1;
+            return 29+16*RPC_MAX_DATA_BRING;
         }
 
         void serialize(char*& msg)
         {
             int32_t size=28+1+16*RPC_MAX_DATA_BRING;
-            msg = new char[size+1];
+            msg = new char[size];
             int32_t* p = (int32_t*)msg;
             *p = term; ++p;
             *p = leader_id; ++p;
@@ -249,7 +247,6 @@ namespace rpc
             *p = current_term; ++p;
             char* q = (char*)p;
             *q = done ? '1':'0';
-            msg[size]='\0';
         }
 
         void deserialize(const char* msg)
@@ -283,13 +280,13 @@ namespace rpc
 
         static int32_t serialize_size()
         {
-            return 4+16*RPC_MAX_DATA_BRING+1;
+            return 4+16*RPC_MAX_DATA_BRING;
         }
 
         void serialize(char*& msg)
         {
             int32_t size=16*RPC_MAX_DATA_BRING+4;
-            msg = new char[size+1];
+            msg = new char[size];
             int32_t *p = (int32_t*)msg;
             for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
             {
@@ -299,7 +296,6 @@ namespace rpc
                 *p = data[i].term; ++p;
             }
             *p = real_bring;
-            msg[size]='\0';
         }
 
         void deserialize(const char* msg)
@@ -324,7 +320,17 @@ namespace rpc
     */
     struct rpc_data
     {
-        void* params;
+        // void* params;
+        union params_union
+        {
+            rpc::rpc_append_entries apd;
+            rpc::client_request clt;
+            rpc::rpc_install_snapshot_rpc inst;
+            rpc::rpc_requestvote req_vote;
+
+            params_union(){memset(this,0,sizeof(params_union));}
+        } params;
+
         int32_t type;
 
         int32_t src_server_index, dest_server_index;
@@ -340,23 +346,27 @@ namespace rpc
             is_request = *q=='1'; ++q;
             if(type == rpc::rpc_type::APPEND_ENTRIES)
             {
-                params =static_cast<void*>(new rpc::rpc_append_entries());
-                static_cast<rpc::rpc_append_entries*>(params)->deserialize(q);
+                params.apd.deserialize(q);
+                // params =static_cast<void*>(new rpc::rpc_append_entries());
+                // static_cast<rpc::rpc_append_entries*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::CLIENT_REQUEST)
             {
-                params = static_cast<void*>(new rpc::client_request());
-                static_cast<rpc::client_request*>(params)->deserialize(q);
+                params.clt.deserialize(q);
+                // params = static_cast<void*>(new rpc::client_request());
+                // static_cast<rpc::client_request*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
             {
-                params = static_cast<void*>(new rpc::rpc_install_snapshot_rpc());
-                static_cast<rpc::rpc_install_snapshot_rpc*>(params)->deserialize(q);
+                params.inst.deserialize(q);
+                // params = static_cast<void*>(new rpc::rpc_install_snapshot_rpc());
+                // static_cast<rpc::rpc_install_snapshot_rpc*>(params)->deserialize(q);
             }
             else if(type == rpc::rpc_type::REQUEST_VOTE)
             {
-                params = static_cast<void*>(new rpc::rpc_requestvote());
-                static_cast<rpc::rpc_requestvote*>(params)->deserialize(q);
+                params.req_vote.deserialize(q);
+                // params = static_cast<void*>(new rpc::rpc_requestvote());
+                // static_cast<rpc::rpc_requestvote*>(params)->deserialize(q);
             }
         }
 
@@ -388,34 +398,42 @@ namespace rpc
             if(type == rpc_type::APPEND_ENTRIES)
             {
                 char *apd=nullptr;
-                static_cast<rpc::rpc_append_entries*>(params)->serialize(apd);
-                strncpy(q,apd,strlen(apd));
-                q += strlen(apd);
-                *q = '\0';
+                params.apd.serialize(apd);
+                memcpy(q,apd,params.apd.serialize_size());
+                // strncpy(q,apd,strlen(apd));
+                // q += strlen(apd);
+                // *q = '\0';
             }
             else if(type == rpc_type::CLIENT_REQUEST)
             {
                 char* clit = nullptr;
-                static_cast<rpc::client_request*>(params)->serialize(clit);
-                strncpy(q,clit,strlen(clit));
-                q += strlen(clit);
-                *q = '\0';
+                params.clt.serialize(clit);
+                memcpy(q,clit,params.clt.serialize_size());
+                // static_cast<rpc::client_request*>(params)->serialize(clit);
+                // strncpy(q,clit,strlen(clit));
+                // q += strlen(clit);
+                // *q = '\0';
             }
             else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
             {
                 char* inst = nullptr;
-                static_cast<rpc::rpc_install_snapshot_rpc*>(params)->serialize(inst);
-                strncpy(q,inst,strlen(inst));
-                q += strlen(inst);
-                *q = '\0';
+                params.inst.serialize(inst);
+                memcpy(q,inst,params.inst.serialize_size());
+                // static_cast<rpc::rpc_install_snapshot_rpc*>(params)->serialize(inst);
+                // strncpy(q,inst,strlen(inst));
+                // q += strlen(inst);
+                // *q = '\0';
             }
             else if(type == rpc::rpc_type::REQUEST_VOTE)
             {
                 char* req_vote = nullptr;
-                static_cast<rpc::rpc_requestvote*>(params)->serialize(req_vote);
-                strncpy(q,req_vote, strlen(req_vote));
-                q += strlen(req_vote);
-                *q = '\0';
+                params.req_vote.serialize(req_vote);
+                memcpy(q,req_vote,params.req_vote.serialize_size());
+                // int32_t *test = (int32_t*)req_vote;
+                // static_cast<rpc::rpc_requestvote*>(params)->serialize(req_vote);
+                // strncpy(q,req_vote, strlen(req_vote));
+                // q += strlen(req_vote);
+                // *q = '\0';
             }
         }
     };

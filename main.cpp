@@ -1,5 +1,6 @@
-#include "system.hpp"
-#include "client.hpp"
+// #include "system.hpp"
+// #include "client.hpp"
+#include "rpc.hpp"
 
 int main(int argc, char const *argv[])
 {
@@ -22,12 +23,12 @@ int main(int argc, char const *argv[])
     data->type=rpc::rpc_type::REQUEST_VOTE;
     req->candidate_id=3;
     data->src_server_index=13;
-    data->params = reinterpret_cast<void*>(req);
+    data->params.req_vote = *req;
     char* ch=nullptr;
     data->serialize(ch);
     rpc::rpc_data* recv = new rpc::rpc_data();
     recv->deserialize(ch);
-    printf("%d, candidate id=%d\n",recv->src_server_index,static_cast<rpc::rpc_requestvote*>(recv->params)->candidate_id);
+    printf("%d, candidate id=%d\n",recv->src_server_index,recv->params.req_vote.candidate_id);
 
     rpc::rpc_requestvote* req2=new rpc::rpc_requestvote();
     req2->candidate_id=15;
@@ -36,5 +37,13 @@ int main(int argc, char const *argv[])
     rpc::rpc_requestvote* rev_req=new rpc::rpc_requestvote();
     rev_req->deserialize(ch2);
     printf("candi %d\n",rev_req->candidate_id);
+    char ch1[10];
+    sprintf(ch1,"00");
+    printf("len of ch=%d\n",strlen(ch1));
+    void* tmp_void=(void*)ch1;
+    char* ch3=(char*)tmp_void;
+    printf("ch2=%s\n",ch3);
+    char* test1 = ch3+1;
+    printf("strlen=%d\n",strlen(test1));
     return 0;
 }
