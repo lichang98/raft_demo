@@ -37,7 +37,7 @@ namespace log_manager
                 if(logs[i].term==term && logs[i].index == index)
                     return i+1;
             }
-            return -1;
+            return 0;
         }
 
         /*

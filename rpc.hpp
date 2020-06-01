@@ -435,6 +435,7 @@ namespace rpc
         {
             server_ip = nullptr;
             server_port=-1;
+            round_robin=0;
         }
 
         void create_socket()
@@ -640,12 +641,17 @@ namespace rpc
             }
             else
             {
-                for(int32_t sock_fd : accepted_socket_fds)
+                int32_t i=round_robin,count=0,size=accepted_socket_fds.size();
+                while(count < size)
                 {
-                    if(FD_ISSET(sock_fd,&rd))
+                    count++;
+                    i = (i+1) % size;
+                    int32_t sock_fd_ele = accepted_socket_fds[i];
+                    if(FD_ISSET(sock_fd_ele, &rd))
                     {
-                        ssize_t real_recv_len = read(sock_fd,(void*)data,read_size);
+                        ssize_t real_recv_len = read(sock_fd_ele, (void*)data, read_size);
                         LOG(INFO) << "server real recv data size=" << real_recv_len;
+                        round_robin=i;
                         if(real_recv_len <0)
                         {
                             LOG(ERROR) << "socket read failed for server";
@@ -675,6 +681,10 @@ namespace rpc
         // std::unordered_map<const sockaddr_in, int32_t> addr_sockfd_map;
         std::vector<int32_t> accepted_socket_fds; // only used when current server as the center
         int32_t self_socket_fd;
+        // the center server will try to receive the data from client sockets created before
+        // when multiple accepted client socket has data, in order to read from each socket evenly
+        // when server read from a client socket, next epoch, will start from prev pos+1
+        int32_t round_robin;
         // when current server acts as a client, this variable record the server connects with
         char *server_ip;
         int32_t server_port;

@@ -45,11 +45,11 @@ namespace my_system
 
         static void shutdown()
         {
+            opaque_router->is_sys_running=false;
             for(server::ServerEnt& serv: system_config.servers)
             {
                 serv.is_server_running=false;
             }
-            opaque_router->is_sys_running=false;
         }
 
         static void parse_json_config(const char* file)
@@ -90,7 +90,7 @@ namespace my_system
                 {
                     if(idx == sv.server_idx)
                         continue;
-                    sv.match_index.insert(std::make_pair(idx,0));
+                    sv.match_index.insert(std::make_pair(idx,-1));
                 }
             }
             server::ServerEnt::num_majority=(system_config.num_servers / 2)+(system_config.num_servers % 2);

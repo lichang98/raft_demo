@@ -66,20 +66,29 @@ namespace my_router
                         // here mark client index=-2, there is only one client push command request to system
                         if(id2sock_fd.find(-2) == id2sock_fd.end())
                             id2sock_fd.insert(std::make_pair(-2,*(rpcmanager.accepted_socket_fds.end()-1)));
-                        LOG(INFO) << "router accept client connection";
+                        LOG(INFO) << "router accept user client connection";
                         // redirect to an arbitrary server, if the server is not the leader, it will redirect
                         // the request to current leader
+                        // the received server if not the leader, it will redirect to the leader it knows
                         int32_t target_sock_fd=-1;
-                        for(const std::pair<int32_t, int32_t>& ele : id2sock_fd)
+                        if(recv_data->dest_server_index==-1)
                         {
-                            if(ele.first != -2)
+                            for(const std::pair<int32_t, int32_t>& ele : id2sock_fd)
                             {
-                                recv_data->dest_server_index = ele.first;
-                                target_sock_fd=ele.second;
-                                break;
+                                if(ele.first != -2)
+                                {
+                                    recv_data->dest_server_index = ele.first;
+                                    target_sock_fd=ele.second;
+                                    break;
+                                }
                             }
                         }
-                        LOG(INFO) << "router redirect client msg to server " << recv_data->dest_server_index;
+                        else
+                        {
+                            target_sock_fd=id2sock_fd[recv_data->dest_server_index];
+                        }
+                        
+                        LOG(INFO) << "router redirect user client msg to server " << recv_data->dest_server_index;
                         char* send_data = nullptr;
                         recv_data->serialize(send_data);
                         rpcmanager.send_msg(target_sock_fd,(void*)send_data, rpc::rpc_data::serialize_size());
@@ -100,7 +109,8 @@ namespace my_router
                             // broadcast
                             for(const std::pair<int32_t, int32_t>& ele : id2sock_fd)
                             {
-                                if(ele.first == recv_data->src_server_index)
+                                // broadcast not send to self and user client
+                                if(ele.first == recv_data->src_server_index || ele.first < 0)
                                     continue;
                                 recv_data->dest_server_index = ele.first;
                                 char* send_ch = nullptr;

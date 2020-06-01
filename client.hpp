@@ -26,7 +26,9 @@ namespace client
         {
             rpc::rpc_data* data=new rpc::rpc_data();
             data->type=rpc::rpc_type::CLIENT_REQUEST;
+            // in this system, only one user client request for system for process commands
             data->src_server_index=-2;
+            data->dest_server_index=-1;
             data->is_request=true;
 
             rpc::client_request* param=new rpc::client_request();
@@ -53,6 +55,7 @@ namespace client
         {
             char* send_msg=nullptr;
             msg->serialize(send_msg);
+            LOG(INFO) << "user client send to system commands";
             rpcmanager.client_send_msg((void*)send_msg, rpc::rpc_data::serialize_size());
         }
         /*

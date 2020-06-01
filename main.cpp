@@ -13,8 +13,9 @@ int main(int argc, char const *argv[])
     client::MyClient usr_client((char*)"127.0.0.1",61000,my_system::opaque_router->ip_addr,my_system::opaque_router->port);
     rpc::rpc_data* data = client::MyClient::file_parser((char*)"client_data.txt");
     usr_client.send_msg(data);
-    sys.shutdown();
     std::this_thread::sleep_for(std::chrono::seconds(5));
+    sys.shutdown();
+    std::this_thread::sleep_for(std::chrono::seconds(5)); // wait for shutdown
     google::ShutdownGoogleLogging();
     return 0;
 }
