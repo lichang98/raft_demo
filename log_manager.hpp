@@ -1,4 +1,5 @@
 #pragma once
+#include "data_type.hpp"
 #include <stdlib.h>
 #include <stdio.h>
 #include <vector>
@@ -10,38 +11,16 @@
 */
 namespace log_manager
 {
-
-    struct kv_data
-    {
-        int32_t k,v;
-
-        kv_data():k(0),v(0){}
-        kv_data(int32_t _k, int32_t _v):k(_k),v(_v){}
-    };
-    /*
-    * one entry in the log
-    * attributes:
-    *   term_id, the term when the entry is created
-    *   index and term are related with log entry
-    */
-    struct log_entry
-    {
-        kv_data data;
-        int32_t index,term;
-
-        log_entry():index(-1),term(-1){}
-    };
-
     class MachineLog
     {
     public:
-        void append_entries(std::vector<log_entry> apd_logs)
+        void append_entries(std::vector<my_data_type::log_entry> apd_logs)
         {
             logs.reserve(logs.size()+apd_logs.size());
             logs.insert(logs.end(),apd_logs.begin(),apd_logs.end());
         }
 
-        void append_entries_fix_pos(int32_t pos, std::vector<log_entry> apd_logs)
+        void append_entries_fix_pos(int32_t pos, std::vector<my_data_type::log_entry> apd_logs)
         {
             logs.erase(logs.begin()+pos,logs.end());
             logs.reserve(logs.size()+apd_logs.size());
@@ -64,9 +43,11 @@ namespace log_manager
         /*
         * get log entries in the given range, both bound inclusive
         */
-        std::vector<log_entry> get_range(int32_t low,int32_t high)
+        std::vector<my_data_type::log_entry> get_range(int32_t low,int32_t high)
         {
-            std::vector<log_entry> ans(high-low+1);
+            if(logs.empty())
+                return std::vector<my_data_type::log_entry>();
+            std::vector<my_data_type::log_entry> ans(high-low+1);
             high = std::min(high,(int32_t)logs.size()-1);
             ans.assign(logs.begin()+low,logs.begin()+high+1);
             return ans;
@@ -77,7 +58,7 @@ namespace log_manager
             return logs.size();
         }
 
-        log_entry get_entry_by_index(int32_t index)
+        my_data_type::log_entry get_entry_by_index(int32_t index)
         {
             int32_t i=logs.size();
             while(--i >=0)
@@ -85,7 +66,7 @@ namespace log_manager
                 if(logs[i].index == index)
                     return logs[i];
             }
-            return log_entry();
+            return my_data_type::log_entry();
         }
 
 
@@ -102,7 +83,7 @@ namespace log_manager
             term=logs[n-1].term;
         }
     private:
-        std::vector<log_entry> logs;
+        std::vector<my_data_type::log_entry> logs;
     };
     
 } // namespace log_manager

@@ -1,6 +1,5 @@
 #pragma once
 #include "rpc.hpp"
-#include "log_manager.hpp"
 #include <fstream>
 
 namespace client
@@ -31,19 +30,18 @@ namespace client
             data->is_request=true;
 
             rpc::client_request* param=new rpc::client_request();
-            std::vector<log_manager::log_entry>* entries=new std::vector<log_manager::log_entry>();
+            int32_t index=0;
             std::fstream fs(file, std::fstream::in);
             while(!fs.eof())
             {
                 int32_t k,v;
                 fs >> k >> v;
-                log_manager::log_entry entry;
-                entry.data=log_manager::kv_data(k,v);
-                entries->emplace_back(entry);
+                my_data_type::log_entry entry;
+                entry.data=my_data_type::kv_data(k,v);
+                param->data[index++] = entry;
             }
-            param->data=entries;
-            param->data_size = sizeof(std::vector<log_manager::log_entry>);
-            data->params=param;
+            param->real_bring = index;
+            data->params = static_cast<void*>(param);
             fs.close();
             return data;
         }
@@ -53,18 +51,26 @@ namespace client
         */
         void send_msg(rpc::rpc_data* msg)
         {
-            rpcmanager.client_send_msg((void*)msg,sizeof(rpc::rpc_data));
+            char* send_msg=nullptr;
+            msg->serialize(send_msg);
+            rpcmanager.client_send_msg((void*)send_msg, rpc::rpc_data::serialize_size());
         }
         /*
         * try to receive data response with timeout
         */
         rpc::rpc_data* recv_response(int32_t timeout_milliseconds=100)
         {
-            std::tuple<int32_t,void*> back_data = rpcmanager.recv_data(sizeof(rpc::rpc_data),timeout_milliseconds);
-            if(std::get<0>(back_data) == 0)
+            std::tuple<int32_t,char*> back_data = rpcmanager.recv_data(rpc::rpc_data::serialize_size(),timeout_milliseconds);
+            if(std::get<0>(back_data) <=0)
+            {
                 return nullptr;
+            }
             else
-                return (rpc::rpc_data*)std::get<1>(back_data);
+            {
+                rpc::rpc_data* ret = new rpc::rpc_data();
+                ret->deserialize(std::get<1>(back_data));
+                return ret;
+            }
         }
         ~MyClient()
         {

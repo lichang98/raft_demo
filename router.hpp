@@ -45,7 +45,13 @@ namespace my_router
                 LOG(INFO) << "router listen for connection with timeout 10ms";
                 rpcmanager.listen_and_accept();
                 // try to read from connections
-                rpc::rpc_data* recv_data = (rpc::rpc_data*)rpcmanager.server_recv_data();
+                char* recv_ch = rpcmanager.server_recv_data(rpc::rpc_data::serialize_size());
+                rpc::rpc_data* recv_data=nullptr;
+                if(recv_ch)
+                {
+                    recv_data=new rpc::rpc_data();
+                    recv_data->deserialize(recv_ch);
+                }
                 if(recv_data)
                 {
                     if(recv_data->type == rpc::rpc_type::CONN)
@@ -73,15 +79,19 @@ namespace my_router
                                 break;
                             }
                         }
-                        LOG(INFO) << "router redirect msg to server " << recv_data->dest_server_index;
-                        rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
+                        LOG(INFO) << "router redirect client msg to server " << recv_data->dest_server_index;
+                        char* send_data = nullptr;
+                        recv_data->serialize(send_data);
+                        rpcmanager.send_msg(target_sock_fd,(void*)send_data, rpc::rpc_data::serialize_size());
                     }
                     else
                     {
                         if(recv_data->dest_server_index >=0)
                         {
                             int32_t target_sock_fd = id2sock_fd[recv_data->dest_server_index];
-                            rpcmanager.send_msg(target_sock_fd,(void*)recv_data, sizeof(rpc::rpc_data));
+                            char* send_ch = nullptr;
+                            recv_data->serialize(send_ch);
+                            rpcmanager.send_msg(target_sock_fd,(void*)send_ch,rpc::rpc_data::serialize_size());
                             LOG(INFO) << "router receive from " << recv_data->src_server_index << 
                                 ", and redirect it to " << recv_data->dest_server_index;
                         }
@@ -93,7 +103,9 @@ namespace my_router
                                 if(ele.first == recv_data->src_server_index)
                                     continue;
                                 recv_data->dest_server_index = ele.first;
-                                rpcmanager.send_msg(ele.second,(void*)recv_data,sizeof(rpc::rpc_data));
+                                char* send_ch = nullptr;
+                                recv_data->serialize(send_ch);
+                                rpcmanager.send_msg(ele.second,(void*)send_ch,rpc::rpc_data::serialize_size());
                                 LOG(INFO) << "server idx=" << recv_data->src_server_index <<\
                                          " broadcast, send to server " << ele.first;
                             }

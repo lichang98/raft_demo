@@ -18,6 +18,7 @@
 #include <vector>
 #include <glog/logging.h>
 #include <glog/log_severity.h>
+#include "data_type.hpp"
 /*
 * in raft, each server can be candidate, follower and leader
 * follower only receive RPCs except when not sense leader after timeout and become candidate
@@ -61,6 +62,8 @@ namespace rpc
         const static int32_t CLIENT_REQUEST=4;
     };
 
+    static int32_t RECV_BACKLOG_SIZE = 32; // the max size of the server listen backlog
+    const static int32_t RPC_MAX_DATA_BRING = 8; // the maximum number of data the RPC can bring
     // this rpc invoked by candidates to gather votes
     struct rpc_requestvote
     {
@@ -74,6 +77,45 @@ namespace rpc
         // if the candidate's log is at least as up-to-date as receiver's, grant vote
         int32_t current_term; // current term, for candidate to update itself
         bool vote_granted; // true means candidate receoved vote
+
+        /*
+        * the size after the struct serialized as string
+        */
+        static int32_t serialize_size()
+        {
+            return 22;
+        }
+
+        /*
+        * the data transmission of data need to serialize
+        */
+        void serialize(char *&serialize_msg)
+        {
+            serialize_msg = new char[22]; // the total size of elements of struct is 21 bytes(no alignment)
+            int32_t *p = (int32_t*)serialize_msg;
+            *p = term;++p;
+            *p = candidate_id;++p;
+            *p = last_log_index;++p;
+            *p = last_log_term;++p;
+            *p= current_term;++p;
+            char* q=(char*)p;
+            *q = vote_granted ? '1':'0';
+            serialize_msg[21]='\0';
+        }
+        /*
+        * reconstruct data of struct from serialized string message
+        */
+        void deserialize(char *serialize_msg)
+        {
+            int32_t* p = (int32_t*)serialize_msg;
+            term=*p;++p;
+            candidate_id=*p;++p;
+            last_log_index=*p;++p;
+            last_log_term=*p;++p;
+            current_term=*p;++p;
+            char* q=(char*)p;
+            vote_granted=*q=='1';
+        }
     };
 
     // this rpc invoked by leader to replicate log entries
@@ -98,13 +140,64 @@ namespace rpc
         // term of prev_log_index entry
         int32_t prev_log_term; 
         // log entries to store;
-        void* entries; 
+        my_data_type::log_entry entries[RPC_MAX_DATA_BRING];
+        int32_t real_bring;
         // leader's commit index
         int32_t leader_commit;
 
         // values for return
         int32_t current_term; // current term for leader to update itself
         bool succ; // true if follower contained entry matching pre_log_index and prev_log_term
+
+        static int32_t serialize_size()
+        {
+            return 29+RPC_MAX_DATA_BRING*16+1;
+        }
+
+        void serialize(char*& msg)
+        {
+            int32_t size=28+1+RPC_MAX_DATA_BRING*16;
+            msg = new char[size+1];
+            int32_t *p = (int32_t*)msg;
+            *p = term;++p;
+            *p = leader_id;++p;
+            *p=prev_log_index;++p;
+            *p=prev_log_term;++p;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                *p = entries[i].data.k;++p;
+                *p = entries[i].data.v;++p;
+                *p = entries[i].index;++p;
+                *p = entries[i].term;++p;
+            }
+            *p = real_bring;++p;
+            *p = leader_commit;++p;
+            *p = current_term;++p;
+            char* q=(char*)p;
+            *q = succ ? '1':'0';
+            msg[size]='\0';
+        }
+
+        void deserialize(const char* msg)
+        {
+            int32_t *p = (int32_t*)msg;
+            term=*p;++p;
+            leader_id=*p; ++p;
+            prev_log_index = *p; ++p;
+            prev_log_term = *p; ++p;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                entries[i].data.k = *p ;++p;
+                entries[i].data.v =*p; ++p;
+                entries[i].index = *p; ++p;
+                entries[i].term = *p; ++p;
+            }
+            real_bring = *p;++p;
+            leader_commit=*p; ++p;
+            current_term=*p; ++p;
+            char* q = (char*)p;
+            succ = *q == '1';
+        }
     };
     
     // this rpc invoked by leader to send chunks of snapshot to a follower
@@ -124,19 +217,103 @@ namespace rpc
         int32_t last_include_index; // the snapshot replaces all entries up through and including this index
         int32_t last_include_term; // the term of last include index
         int32_t offset; // byte offset where chunk is positioned in the snapshot file
-        void* data; // raw bytes of the snapshot chunk, starting at offset
-        bool done; // true if this is the last chunk
-
+        my_data_type::log_entry data[RPC_MAX_DATA_BRING]; // snapshot chunk, starting at offset
+        int32_t real_bring;
         // values for return
         int32_t current_term; // for leader to update itself
+        bool done; // true if this is the last chunk
+
+        static int32_t serialize_size()
+        {
+            return 29+16*RPC_MAX_DATA_BRING+1;
+        }
+
+        void serialize(char*& msg)
+        {
+            int32_t size=28+1+16*RPC_MAX_DATA_BRING;
+            msg = new char[size+1];
+            int32_t* p = (int32_t*)msg;
+            *p = term; ++p;
+            *p = leader_id; ++p;
+            *p = last_include_index; ++p;
+            *p = last_include_term; ++p;
+            *p = offset; ++p;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                *p = data[i].data.k;++p;
+                *p = data[i].data.v;++p;
+                *p = data[i].index;++p;
+                *p = data[i].term;++p;
+            }
+            *p = real_bring; ++p;
+            *p = current_term; ++p;
+            char* q = (char*)p;
+            *q = done ? '1':'0';
+            msg[size]='\0';
+        }
+
+        void deserialize(const char* msg)
+        {
+            int32_t *p = (int32_t*)msg;
+            term= *p; ++p;
+            leader_id =*p; ++p;
+            last_include_index = *p; ++p;
+            last_include_term = *p; ++p;
+            offset = *p; ++p;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                data[i].data.k= *p; ++p;
+                data[i].data.v = *p; ++p;
+                data[i].index =*p; ++p;
+                data[i].term= *p; ++p;
+            }
+            real_bring= *p; ++p;
+            current_term= *p; ++p;
+            char* q=(char*)p;
+            done = *q=='1';
+        }
     };
 
     struct client_request
     {
         // the command that client request system to process
         // in this project, int this project, client send one KV pair each time
-        void* data; 
-        size_t data_size;
+        my_data_type::log_entry data[RPC_MAX_DATA_BRING]; 
+        int32_t real_bring;
+
+        static int32_t serialize_size()
+        {
+            return 4+16*RPC_MAX_DATA_BRING+1;
+        }
+
+        void serialize(char*& msg)
+        {
+            int32_t size=16*RPC_MAX_DATA_BRING+4;
+            msg = new char[size+1];
+            int32_t *p = (int32_t*)msg;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                *p = data[i].data.k; ++p;
+                *p = data[i].data.v; ++p;
+                *p = data[i].index; ++p;
+                *p = data[i].term; ++p;
+            }
+            *p = real_bring;
+            msg[size]='\0';
+        }
+
+        void deserialize(const char* msg)
+        {
+            int32_t *p = (int32_t*)msg;
+            for(int32_t i=0;i<RPC_MAX_DATA_BRING;++i)
+            {
+                data[i].data.k =*p; ++p;
+                data[i].data.v= *p; ++p;
+                data[i].index = *p; ++p;
+                data[i].term= *p; ++p;
+            }
+            real_bring = *p;
+        }
     };
     
     
@@ -147,14 +324,101 @@ namespace rpc
     */
     struct rpc_data
     {
-        void *params;
+        void* params;
         int32_t type;
 
         int32_t src_server_index, dest_server_index;
         bool is_request; // true if is a request, otherwise it is a response
+
+        void deserialize(const char* msg)
+        {
+            int32_t *p = (int32_t*)msg;
+            type = *p; ++p;
+            src_server_index = *p; ++p;
+            dest_server_index =*p; ++p;
+            char* q=(char*)p;
+            is_request = *q=='1'; ++q;
+            if(type == rpc::rpc_type::APPEND_ENTRIES)
+            {
+                params =static_cast<void*>(new rpc::rpc_append_entries());
+                static_cast<rpc::rpc_append_entries*>(params)->deserialize(q);
+            }
+            else if(type == rpc::rpc_type::CLIENT_REQUEST)
+            {
+                params = static_cast<void*>(new rpc::client_request());
+                static_cast<rpc::client_request*>(params)->deserialize(q);
+            }
+            else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
+            {
+                params = static_cast<void*>(new rpc::rpc_install_snapshot_rpc());
+                static_cast<rpc::rpc_install_snapshot_rpc*>(params)->deserialize(q);
+            }
+            else if(type == rpc::rpc_type::REQUEST_VOTE)
+            {
+                params = static_cast<void*>(new rpc::rpc_requestvote());
+                static_cast<rpc::rpc_requestvote*>(params)->deserialize(q);
+            }
+        }
+
+        static int32_t serialize_size()
+        {
+            int32_t param_sizes[]={rpc_append_entries::serialize_size(),rpc_requestvote::serialize_size(),\
+                    client_request::serialize_size(), rpc_install_snapshot_rpc::serialize_size()};
+            int32_t max_param_size=0;
+            for(int32_t i=0;i<4;++i)
+                max_param_size=std::max(max_param_size, param_sizes[i]);
+            return max_param_size+13;  
+        }
+
+        void serialize(char*& msg)
+        {
+            int32_t param_sizes[]={rpc_append_entries::serialize_size(),rpc_requestvote::serialize_size(),\
+                    client_request::serialize_size(), rpc_install_snapshot_rpc::serialize_size()};
+            int32_t max_param_size=0;
+            for(int32_t i=0;i<4;++i)
+                max_param_size=std::max(max_param_size, param_sizes[i]);
+            int32_t len = max_param_size+13;
+            msg = new char[len];
+            int32_t *p = (int32_t*)msg;
+            *p = type; ++p;
+            *p = src_server_index; ++p;
+            *p = dest_server_index; ++p;
+            char* q = (char*)p;
+            *q = is_request ? '1':'0';++q;
+            if(type == rpc_type::APPEND_ENTRIES)
+            {
+                char *apd=nullptr;
+                static_cast<rpc::rpc_append_entries*>(params)->serialize(apd);
+                strncpy(q,apd,strlen(apd));
+                q += strlen(apd);
+                *q = '\0';
+            }
+            else if(type == rpc_type::CLIENT_REQUEST)
+            {
+                char* clit = nullptr;
+                static_cast<rpc::client_request*>(params)->serialize(clit);
+                strncpy(q,clit,strlen(clit));
+                q += strlen(clit);
+                *q = '\0';
+            }
+            else if(type == rpc::rpc_type::INSTALL_SNAPSHOT)
+            {
+                char* inst = nullptr;
+                static_cast<rpc::rpc_install_snapshot_rpc*>(params)->serialize(inst);
+                strncpy(q,inst,strlen(inst));
+                q += strlen(inst);
+                *q = '\0';
+            }
+            else if(type == rpc::rpc_type::REQUEST_VOTE)
+            {
+                char* req_vote = nullptr;
+                static_cast<rpc::rpc_requestvote*>(params)->serialize(req_vote);
+                strncpy(q,req_vote, strlen(req_vote));
+                q += strlen(req_vote);
+                *q = '\0';
+            }
+        }
     };
-    static int32_t RECV_BACKLOG_SIZE = 32; // the max size of the server listen backlog
-    const static int32_t RECV_BUFFER_SIZE = sizeof(rpc::rpc_data); // the size of each RPC
 
     sockaddr_in convert_ip_port_to_addr(const char* ip_addr, int32_t port)
     {
@@ -295,7 +559,7 @@ namespace rpc
         ssize_t send_msg(int32_t target_sock_fd, const void* msg, size_t len)
         {
             int32_t real_send_len=0;
-            if((real_send_len = send(target_sock_fd, (const void*)msg, len,0) )<0)
+            if((real_send_len = send(target_sock_fd, msg, len,0) )<0)
             {
                 LOG(ERROR) << "server send message failed!";
                 exit(1);
@@ -324,11 +588,11 @@ namespace rpc
         * Notice that the function is special for client
         * client read self's socket to receive data from server
         */
-        std::tuple<int32_t, void*> recv_data(size_t read_size=RECV_BUFFER_SIZE,const int32_t timeout_millisec=3)
+        std::tuple<int32_t, char*> recv_data(size_t read_size,const int32_t timeout_millisec=3)
         {
             LOG(INFO) << "client try receive data";
-            void* data =(void*) new char[read_size+1];
-            bzero(data,read_size+1);
+            char* data = new char[read_size];
+            bzero(data,read_size);
             fd_set rd;
             timeval tv;
             FD_ZERO(&rd);
@@ -344,9 +608,10 @@ namespace rpc
             }
             else
             {
-                ssize_t real_recv = read(this->self_socket_fd,data,read_size);
+                ssize_t real_recv = read(this->self_socket_fd,(void*)data,read_size);
                 LOG(INFO) << "client try read, size=" << real_recv;
-                return std::make_tuple(real_recv, (void*)data);
+                data[read_size-1]='\0';
+                return std::make_tuple(real_recv, data);
             }
         }
 
@@ -355,11 +620,11 @@ namespace rpc
         *   different from client, server need to read from accepted client sockets to receive data from clients
         *   
         */
-        void *server_recv_data(size_t read_size=RECV_BUFFER_SIZE,const int32_t timeout_millisec=3)
+        char *server_recv_data(size_t read_size,const int32_t timeout_millisec=3)
         {
             LOG(INFO) << "server try receive";
-            void* data = (void*)new char[read_size+1];
-            bzero(data,read_size+1);
+            char* data = new char[read_size];
+            bzero(data,read_size);
 
             fd_set rd;
             timeval tv;
@@ -386,7 +651,7 @@ namespace rpc
                 {
                     if(FD_ISSET(sock_fd,&rd))
                     {
-                        ssize_t real_recv_len = read(sock_fd,data,read_size);
+                        ssize_t real_recv_len = read(sock_fd,(void*)data,read_size);
                         LOG(INFO) << "server real recv data size=" << real_recv_len;
                         if(real_recv_len <0)
                         {
@@ -395,6 +660,7 @@ namespace rpc
                         }
                         else
                         {
+                            data[read_size-1]='\0';
                             return data;
                         }
                     }

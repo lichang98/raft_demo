@@ -8,9 +8,9 @@ namespace server_sm
     class SM
     {
     public:
-        void update_db(std::vector<log_manager::log_entry> committed_entries)
+        void update_db(std::vector<my_data_type::log_entry> committed_entries)
         {
-            for(log_manager::log_entry& ele : committed_entries)
+            for(my_data_type::log_entry& ele : committed_entries)
             {
                 in_mem_db[ele.data.k]=in_mem_db[ele.data.v];
             }
