@@ -428,26 +428,31 @@ namespace server
                                 match_index[recv_data->src_server_index]=param->prev_log_index;
                                 LOG(INFO) << "leader " << this->server_idx << ", update server " << recv_data->src_server_index
                                     << "'s match index =" << param->prev_log_index;
-                                replicate_count++;
-                                LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response success from " << recv_data->src_server_index
-                                    << ", currently total replicate count=" << replicate_count;
-                                if(commit_index > last_applied && replicate_count >= num_majority)
+                                // the response received may  for previous request, it can be checked by leader commit
+                                // only response for current requests counted
+                                if(recv_data->params.apd.leader_commit == this->leader_commit)
                                 {
-                                    // log entries have been replicated on major followers
-                                    // the entries before can be committed safely
-                                    LOG(INFO) << "current server idx=" << this->server_idx << ", has replicated on major followers"
-                                            << ", commit index=" << commit_index << ", last_applied=" << last_applied;
-                                    std::vector<my_data_type::log_entry> comit_logs = logmanager.get_range(last_applied+1, commit_index);
-                                    state_machine.update_db(comit_logs);
-                                    last_applied=commit_index;
-                                    this->leader_commit=commit_index;
-                                    replicate_count=0;
-                                    LOG(INFO) << "current server idx=" << this->server_idx << ", update statemachine,"
-                                            << " state is :" << this->state_machine;
-                                }
-                                else if(commit_index <= last_applied)
-                                {
-                                    replicate_count=0;
+                                    replicate_count++;
+                                    LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response success from " << recv_data->src_server_index
+                                        << ", currently total replicate count=" << replicate_count;
+                                    if(commit_index > last_applied && replicate_count >= num_majority)
+                                    {
+                                        // log entries have been replicated on major followers
+                                        // the entries before can be committed safely
+                                        LOG(INFO) << "current server idx=" << this->server_idx << ", has replicated on major followers"
+                                                << ", commit index=" << commit_index << ", last_applied=" << last_applied;
+                                        std::vector<my_data_type::log_entry> comit_logs = logmanager.get_range(last_applied+1, commit_index);
+                                        state_machine.update_db(comit_logs);
+                                        last_applied=commit_index;
+                                        this->leader_commit=commit_index;
+                                        replicate_count=0;
+                                        LOG(INFO) << "current server idx=" << this->server_idx << ", update statemachine,"
+                                                << " state is :" << this->state_machine;
+                                    }
+                                    else if(commit_index <= last_applied)
+                                    {
+                                        replicate_count=0;
+                                    }
                                 }
                             }
                         }
