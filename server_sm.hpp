@@ -12,7 +12,7 @@ namespace server_sm
         {
             for(my_data_type::log_entry& ele : committed_entries)
             {
-                in_mem_db[ele.data.k]=in_mem_db[ele.data.v];
+                in_mem_db[ele.data.k]=ele.data.v;
             }
         }
 

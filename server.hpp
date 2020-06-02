@@ -94,7 +94,7 @@ namespace server
             while(is_server_running)
             {
                 while(atomic_on_leader_index.test_and_set()){std::this_thread::sleep_for(std::chrono::milliseconds(1));}
-                if(this->server_identity == identity::LEADER)
+                if(this->server_identity == identity::LEADER && get_current_tm() >= elect_timeout_high/2)
                 {
                     // send AppendEntries RPcs to all other servers
                     for(const std::pair<int32_t, int32_t>& ele : this->match_index)
@@ -106,6 +106,7 @@ namespace server
                         rpc::rpc_append_entries* param=new rpc::rpc_append_entries();
                         param->term=this->current_term;
                         param->leader_id=this->server_idx;
+                        param->leader_commit=this->commit_index;
                         // replicate log entries range from commit index to match index
                         param->prev_log_index=ele.second;
                         param->prev_log_term = logmanager.get_entry_by_index(ele.second).term;
@@ -115,12 +116,13 @@ namespace server
                         for(int32_t i=0;i<rep_entries.size();++i)
                             param->entries[i] = rep_entries[i];
                         param->real_bring=rep_entries.size();
-                        param->leader_commit = this->commit_index;
+                        this->commit_index = logmanager.get_log_size()-1;
                         sent_data->params.apd = *param; // append entries params
                         sent_data->is_request=true;
                         LOG(INFO) << "leader " << this->server_idx << ", send AppendEntries RPC to server " << ele.first\
                             << ", log range low=" << ele.second+1 << ", range high=" << logmanager.get_log_size()-1\
-                            << ", commit index=" << this->leader_commit << ", current term=" << this->current_term;
+                            << ", commit index=" << this->leader_commit << ", current term=" << this->current_term
+                            << ", send append entries rpc to " << sent_data->dest_server_index << ", real bring=" << sent_data->params.apd.real_bring;
                         char* send_ch = nullptr;
                         sent_data->serialize(send_ch);
                         rpcmanager.client_send_msg((void*)send_ch, rpc::rpc_data::serialize_size());
@@ -170,15 +172,16 @@ namespace server
                         // followers normal process
                         // check entries to commit
                         this->commit_index = this->leader_commit;
+                        LOG(INFO) << "follower server " << this->server_idx << ", normal self process, commit index=" << this->commit_index;
                         if(this->commit_index > this->last_applied)
                         {
                             // apply these entries onto state machine
                             std::vector<my_data_type::log_entry> entry_comit=\
                                             logmanager.get_range(this->last_applied+1,this->commit_index);
                             this->state_machine.update_db(entry_comit);
-                            this->last_applied = this->commit_index;
                             LOG(INFO) << "server idx=" << this->server_idx << ", commit entries from " << this->last_applied+1\
                                 << " to " << this->commit_index << ", server statemachine is: " << state_machine;
+                            this->last_applied = this->commit_index;
                         }
                     }
                     else if(this->server_identity == identity::CANDIDATE && get_current_tm() >= rand_timeout)
@@ -224,7 +227,8 @@ namespace server
                             this->leader_commit=this->commit_index;
                             // AppendEntries RPCs will not invoke here, all request send of the leader is
                             // at the beginning of the main loop
-                            LOG(INFO) << "server idx=" << this->server_idx << " receive user client request, current is leader";
+                            LOG(INFO) << "server idx=" << this->server_idx << " receive user client request, current is leader"
+                                        <<", commit index=" << this->commit_index;
                         }
                         else
                         {
@@ -335,7 +339,8 @@ namespace server
                                 }
                                 else
                                 {
-                                    LOG(INFO) << "current server idx=" << this->server_idx << ", comes entries is empty, RPC from " << recv_data->src_server_index;
+                                    LOG(INFO) << "current server idx=" << this->server_idx << ", comes entries is empty, RPC from " << recv_data->src_server_index
+                                                << ", current servr commit index=" << this->commit_index;
                                     recv_params->succ=true;
                                     recv_params->prev_log_index=this->commit_index;
                                 }
@@ -421,10 +426,12 @@ namespace server
                             else
                             {
                                 match_index[recv_data->src_server_index]=param->prev_log_index;
+                                LOG(INFO) << "leader " << this->server_idx << ", update server " << recv_data->src_server_index
+                                    << "'s match index =" << param->prev_log_index;
                                 replicate_count++;
-                                LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response success"
+                                LOG(INFO) << "current server idx=" << this->server_idx << ", Append Entries RPC response success from " << recv_data->src_server_index
                                     << ", currently total replicate count=" << replicate_count;
-                                if(replicate_count >= num_majority)
+                                if(commit_index > last_applied && replicate_count >= num_majority)
                                 {
                                     // log entries have been replicated on major followers
                                     // the entries before can be committed safely
@@ -437,6 +444,10 @@ namespace server
                                     replicate_count=0;
                                     LOG(INFO) << "current server idx=" << this->server_idx << ", update statemachine,"
                                             << " state is :" << this->state_machine;
+                                }
+                                else if(commit_index <= last_applied)
+                                {
+                                    replicate_count=0;
                                 }
                             }
                         }
@@ -504,8 +515,8 @@ namespace server
         bool is_server_running;
         int32_t get_vote_count;
         int32_t replicate_count;
-        static const int32_t elect_timeout_low=150;
-        static const int32_t elect_timeout_high=300;
+        static const int32_t elect_timeout_low=450;
+        static const int32_t elect_timeout_high=600;
         static int32_t num_majority;
         static int32_t num_servers;
     };

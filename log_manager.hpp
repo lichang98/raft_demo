@@ -34,7 +34,7 @@ namespace log_manager
             int32_t i=logs.size();
             while(--i >=0)
             {
-                if(logs[i].term==term && logs[i].index == index)
+                if(logs[i].term==term && i==index)
                     return i+1;
             }
             return 0;
@@ -79,7 +79,7 @@ namespace log_manager
                 return;
             }
             int32_t n=logs.size();
-            index = logs[n-1].index;
+            index = n-1;
             term=logs[n-1].term;
         }
     private:
